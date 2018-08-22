@@ -12,12 +12,13 @@ namespace RedisLuaScript
 #if DEBUG
         private static readonly string BasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
             $"..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}");
+        private static readonly IConfiguration Configuration =
+            new ConfigurationBuilder().SetBasePath(BasePath).AddJsonFile("appsettings.Debug.json").Build();
 #else
         private static readonly string BasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory);
-#endif
         private static readonly IConfiguration Configuration =
             new ConfigurationBuilder().SetBasePath(BasePath).AddJsonFile("appsettings.json").Build();
-
+#endif
         private static readonly Lazy<IConnectionMultiplexer> Connection =
             new Lazy<IConnectionMultiplexer>(() => ConnectionMultiplexer.Connect(Configuration["RedisConnection"]));
 
@@ -27,6 +28,7 @@ namespace RedisLuaScript
             Console.WriteLine("[1] Test atomic operation.");
             Console.WriteLine("[2] Test script of getting available server.");
             Console.WriteLine("[3] Test script of getting serial number cross multiple host.");
+            Console.WriteLine("[4] Test script of getting sms verify code.");
 
             var input = Console.ReadKey();
             Console.WriteLine();
@@ -43,12 +45,40 @@ namespace RedisLuaScript
                 case 3:
                     TestGetSerialCrossHost();
                     break;
+                case 4:
+                    TestGetSmsVerifyCode();
+                    break;
                 default:
                     Console.WriteLine($"No test be executed.");
                     break;
             }
 
             Console.Read();
+        }
+
+        private static void TestGetSmsVerifyCode()
+        {
+            var luaScript = GetLuaScript("SmsVerifyCode.lua");
+            RedisKey[] keys = {"TestSMS:DailyCount", "TestSMS:Retry", "TestSMS:VerifyCode"};
+            RedisValue[] argv =
+            {
+                "EXPIRE",
+                3600,//((DateTimeOffset) DateTime.UtcNow.Date.AddDays(1).AddSeconds(-1)).ToUnixTimeSeconds(),
+                20,
+                300,
+                1,
+                600,
+                "9487",
+                "0987987987"
+            };
+
+            var redis = Connection.Value.GetDatabase(7);
+
+            var tasks = Enumerable.Range(0, 300).Select(_ =>
+                Task.Run(async () => Console.WriteLine(await redis.ScriptEvaluateAsync(luaScript, keys,argv))));
+            Task.WaitAll(tasks.ToArray());
+
+            Console.WriteLine("Press any key to close.");
         }
 
         private static void TestGetSerialCrossHost()

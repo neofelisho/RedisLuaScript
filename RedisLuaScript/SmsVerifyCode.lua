@@ -1,21 +1,22 @@
-﻿local retrycap = redis.call('INCR', KEYS[2])
-if retrycap > 1 then
-    return -2
+﻿local softcap = redis.call('INCR', KEYS[2])
+if softcap > 1 then
+	local softttl = redis.call('TTL', KEYS[2])
+	local availablettl = redis.call('TTL', KEYS[3])
+    return '-2'..':'..ARGV[8]..':'..softttl..':'..availablettl
 end
-local dailycap = redis.call('INCR', KEYS[1])
-if dailycap > 20 then
-	return -1
+local hardcap = redis.call('INCR', KEYS[1])
+if hardcap > tonumber(ARGV[3]) then
+	local hardttl = redis.call('TTL', KEYS[1])
+	local availablettl = redis.call('TTL', KEYS[3])
+	return '-1'..':'..ARGV[8]..':'..hardttl..':'..availablettl
 end
-if dailycap == 1 then
-    redis.call('EXPIREAT', KEYS[1], {accumulatedCountExpireAt})
+if hardcap == 1 then
+	redis.call(ARGV[1], KEYS[1], ARGV[2])
 end
-if retrycap == 1 then
-    redis.call('EXPIRE', KEYS[2], 300)
+if softcap == tonumber(ARGV[5]) then
+    redis.call('EXPIRE', KEYS[2], ARGV[4])
 end
-local code = redis.call('GET', KEYS[3])
-if code then 
-    return code
-end
-redis.call('SET', KEYS[3], '9487')
-redis.call('EXPIRE', KEYS[3], 600)
-return '9487'
+redis.call('SET', KEYS[3], ARGV[7]..':'..ARGV[8])
+redis.call('EXPIRE', KEYS[3], ARGV[6])
+local softttl = redis.call('TTL', KEYS[2])
+return ARGV[7]..':'..ARGV[8]..':'..softttl..':'..ARGV[6]
