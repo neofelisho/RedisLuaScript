@@ -29,6 +29,7 @@ namespace RedisLuaScript
             Console.WriteLine("[2] Test script of getting available server.");
             Console.WriteLine("[3] Test script of getting serial number cross multiple host.");
             Console.WriteLine("[4] Test script of getting sms verify code.");
+            Console.WriteLine("[5] Test script of rollback sms verify code.");
 
             var input = Console.ReadKey();
             Console.WriteLine();
@@ -48,6 +49,9 @@ namespace RedisLuaScript
                 case 4:
                     TestGetSmsVerifyCode();
                     break;
+                case 5:
+                    TestRollbackSmsVerifyCode();
+                    break;
                 default:
                     Console.WriteLine($"No test be executed.");
                     break;
@@ -56,14 +60,40 @@ namespace RedisLuaScript
             Console.Read();
         }
 
+        private static void TestRollbackSmsVerifyCode()
+        {
+            var luaScript = GetLuaScript("SmsVerifyCode.lua");
+            var keys = GetSmsKeys();
+            var argv = GetSmsArgs();
+            var redis = Connection.Value.GetDatabase(7);
+            redis.ScriptEvaluate(luaScript, keys, argv);
+                Console.WriteLine("Complete the setting of sms verify code...");
+                Console.Read();
+            luaScript = GetLuaScript("RollbackVerifyCode.lua");
+            redis.ScriptEvaluate(luaScript, keys);
+        }
+
         private static void TestGetSmsVerifyCode()
         {
             var luaScript = GetLuaScript("SmsVerifyCode.lua");
-            RedisKey[] keys = {"TestSMS:DailyCount", "TestSMS:Retry", "TestSMS:VerifyCode"};
+            var keys = GetSmsKeys();
+            var argv = GetSmsArgs();
+
+            var redis = Connection.Value.GetDatabase(7);
+
+            var tasks = Enumerable.Range(0, 300).Select(_ =>
+                Task.Run(async () => Console.WriteLine(await redis.ScriptEvaluateAsync(luaScript, keys, argv))));
+            Task.WaitAll(tasks.ToArray());
+
+            Console.WriteLine("Press any key to close.");
+        }
+
+        private static RedisValue[] GetSmsArgs()
+        {
             RedisValue[] argv =
-            {
+                        {
                 "EXPIRE",
-                3600,//((DateTimeOffset) DateTime.UtcNow.Date.AddDays(1).AddSeconds(-1)).ToUnixTimeSeconds(),
+                3600,
                 20,
                 300,
                 1,
@@ -71,14 +101,12 @@ namespace RedisLuaScript
                 "9487",
                 "0987987987"
             };
+            return argv;
+        }
 
-            var redis = Connection.Value.GetDatabase(7);
-
-            var tasks = Enumerable.Range(0, 300).Select(_ =>
-                Task.Run(async () => Console.WriteLine(await redis.ScriptEvaluateAsync(luaScript, keys,argv))));
-            Task.WaitAll(tasks.ToArray());
-
-            Console.WriteLine("Press any key to close.");
+        private static RedisKey[] GetSmsKeys()
+        {
+            return new RedisKey[] { "TestSMS:DailyCount", "TestSMS:Retry", "TestSMS:VerifyCode" };
         }
 
         private static void TestGetSerialCrossHost()
